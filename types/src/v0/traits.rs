@@ -50,7 +50,12 @@ use crate::{
 
 #[async_trait]
 pub trait StateCatchup: Send + Sync {
-    async fn try_fetch_leaves(&self, retry: usize, height: u64) -> anyhow::Result<Vec<Leaf2>>;
+    async fn try_fetch_leaves(
+        &self,
+        retry: usize,
+        height: u64,
+        epoch_height: u64,
+    ) -> anyhow::Result<Vec<Leaf2>>;
 
     async fn fetch_leaf(
         &self,
@@ -63,7 +68,7 @@ pub trait StateCatchup: Send + Sync {
             self, |provider, retry| {
         let stake_table_clone = stake_table.clone();
         async move {
-                    let mut chain = provider.try_fetch_leaves(retry, height).await?;
+                    let mut chain = provider.try_fetch_leaves(retry, height, epoch_height).await?;
                     chain.sort_by_key(|l| l.view_number());
                     let leaf_chain = chain.into_iter().rev().collect();
                     verify_epoch_root_chain(
@@ -235,8 +240,13 @@ pub trait StateCatchup: Send + Sync {
 
 #[async_trait]
 impl<T: StateCatchup + ?Sized> StateCatchup for Box<T> {
-    async fn try_fetch_leaves(&self, retry: usize, height: u64) -> anyhow::Result<Vec<Leaf2>> {
-        (**self).try_fetch_leaves(retry, height).await
+    async fn try_fetch_leaves(
+        &self,
+        retry: usize,
+        height: u64,
+        epoch_height: u64,
+    ) -> anyhow::Result<Vec<Leaf2>> {
+        (**self).try_fetch_leaves(retry, height, epoch_height).await
     }
 
     async fn fetch_leaf(
@@ -369,8 +379,13 @@ impl<T: StateCatchup + ?Sized> StateCatchup for Box<T> {
 
 #[async_trait]
 impl<T: StateCatchup + ?Sized> StateCatchup for Arc<T> {
-    async fn try_fetch_leaves(&self, retry: usize, height: u64) -> anyhow::Result<Vec<Leaf2>> {
-        (**self).try_fetch_leaves(retry, height).await
+    async fn try_fetch_leaves(
+        &self,
+        retry: usize,
+        height: u64,
+        epoch_height: u64,
+    ) -> anyhow::Result<Vec<Leaf2>> {
+        (**self).try_fetch_leaves(retry, height, epoch_height).await
     }
 
     async fn fetch_leaf(
@@ -504,9 +519,14 @@ impl<T: StateCatchup + ?Sized> StateCatchup for Arc<T> {
 /// Catchup from multiple providers tries each provider in a round robin fashion until it succeeds.
 #[async_trait]
 impl<T: StateCatchup> StateCatchup for Vec<T> {
-    async fn try_fetch_leaves(&self, retry: usize, height: u64) -> anyhow::Result<Vec<Leaf2>> {
+    async fn try_fetch_leaves(
+        &self,
+        retry: usize,
+        height: u64,
+        epoch_height: u64,
+    ) -> anyhow::Result<Vec<Leaf2>> {
         for provider in self {
-            match provider.try_fetch_leaves(retry, height).await {
+            match provider.try_fetch_leaves(retry, height, epoch_height).await {
                 Ok(leaves) => return Ok(leaves),
                 Err(err) => {
                     tracing::info!(
